@@ -1,0 +1,11 @@
+[package]
+name = "vinyldns-rs"
+version = "0.1.0"
+authors = ["shua <me@nonstd.in>"]
+edition = "2018"
+
+[dependencies]
+hyper = "*"
+reqwest = "0.9.8"
+sha2 = "*"
+regex = "*"
