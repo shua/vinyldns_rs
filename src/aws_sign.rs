@@ -1,4 +1,3 @@
-
 mod task1 {
     // https://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
 
@@ -286,7 +285,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
         }
 
         #[test]
-        fn test_hased_canonical_request() {
+        fn test_hashed_canonical_request() {
             let req = canonical_request(
                 &reqwest::Method::GET,
                 &"https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
@@ -305,5 +304,106 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
                 "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"
             );
         }
+    }
+}
+
+mod task2 {
+    use chrono::{DateTime, Datelike, Timelike, Utc};
+    fn string_to_sign(
+        datetime: DateTime<Utc>,
+        region: &str,
+        service: &str,
+        hashed_canonical_request: &str,
+    ) -> String {
+        /*
+        StringToSign =
+            Algorithm + \n +
+            RequestDateTime + \n +
+            CredentialScope + \n +
+            HashedCanonicalRequest
+        */
+
+        // 1. Start with the algorithm designation, followed by a newline character. This value is the hashing algorithm that you use to calculate the digests in the canonical request. For SHA256, AWS4-HMAC-SHA256 is the algorithm.
+        let algorithm_str = "AWS4-HMAC-SHA256\n".to_string();
+        let request_datetime = request_datetime(datetime);
+        let credential_scope = credential_scope(datetime, region, service);
+
+        algorithm_str + &request_datetime + &credential_scope + hashed_canonical_request
+    }
+
+    fn request_datetime(datetime: DateTime<Utc>) -> String {
+        // 2. Append the request date value, followed by a newline character. The date is specified with ISO8601 basic format in the x-amz-date header in the format YYYYMMDD'T'HHMMSS'Z'. This value must match the value you used in any previous steps.
+        format!(
+            "{:04}{:02}{:02}T{:02}{:02}{:02}Z\n",
+            datetime.year(),
+            datetime.month(),
+            datetime.day(),
+            datetime.hour(),
+            datetime.minute(),
+            datetime.second()
+        )
+    }
+
+    fn credential_scope(datetime: DateTime<Utc>, region: &str, service: &str) -> String {
+        // 3. Append the credential scope value, followed by a newline character. This value is a string that includes the date, the region you are targeting, the service you are requesting, and a termination string ("aws4_request") in lowercase characters. The region and service name strings must be UTF-8 encoded.
+        format!(
+            "{:04}{:02}{:02}/{}/{}/aws4_request\n",
+            datetime.year(),
+            datetime.month(),
+            datetime.day(),
+            region,
+            service
+        )
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+        use chrono::{TimeZone, Utc};
+        #[test]
+        fn test_request_datetime() {
+            assert_eq!(
+                request_datetime(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0)),
+                "20150830T123600Z\n"
+            );
+        }
+
+        #[test]
+        fn test_credential_scope() {
+            assert_eq!(
+                credential_scope(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0), "us-east-1", "iam"),
+                "20150830/us-east-1/iam/aws4_request\n"
+            );
+        }
+
+        #[test]
+        fn test_string_to_sign() {
+            assert_eq!(
+                string_to_sign(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0), "us-east-1", "iam", "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"),
+                r#"AWS4-HMAC-SHA256
+20150830T123600Z
+20150830/us-east-1/iam/aws4_request
+f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"#
+            )
+        }
+    }
+}
+
+mod task3 {
+    // fn hash(input: &[u8]) -> Vec<u8> {
+    //     use sha2::{Digest, Sha256};
+    //     let mut hasher = Sha256::default();
+    //     hasher.input(input);
+    //     hasher.result().into()
+    // }
+    fn sign() {
+        /*
+        kSecret = your secret access key
+        kDate = HMAC("AWS4" + kSecret, Date)
+        kRegion = HMAC(kDate, Region)
+        kService = HMAC(kRegion, Service)
+        kSigning = HMAC(kService, "aws4_request")
+        */
+
     }
 }
