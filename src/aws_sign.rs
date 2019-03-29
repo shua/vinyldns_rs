@@ -1,3 +1,6 @@
+pub use chrono::{DateTime, Datelike, Timelike, Utc};
+pub use reqwest::{header::HeaderMap, Method};
+
 mod task1 {
     // https://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
 
@@ -8,7 +11,6 @@ mod task1 {
         // Normalize URI paths according to RFC 3986. Remove redundant and relative path components. Each path segment must be URI-encoded twice (except for Amazon S3 which only gets URI-encoded once).
         // If the absolute path is empty, use a forward slash (/). In the example IAM request, nothing follows the host in the URI, so the absolute path is empty.
         url.path().to_string() // XXX: there's no normalization happening here, but parsing Url's from strings _should_ do that for us
-        + "\n"
     }
 
     fn canonical_query_string(url: &reqwest::Url) -> String {
@@ -44,7 +46,7 @@ mod task1 {
             .collect::<Vec<_>>()
             .join("&");
 
-        query_string + "\n"
+        query_string
     }
 
     fn canonical_headers(headers: &reqwest::header::HeaderMap) -> String {
@@ -58,6 +60,7 @@ mod task1 {
         //   Append a new line ('\n').
         let mut headers = headers
             .iter()
+            .filter(|(k, _v)| !k.as_str().to_lowercase().starts_with("x-amz-"))
             .map(|(k, v)| {
                 format!(
                     "{}:{}\n",
@@ -70,34 +73,25 @@ mod task1 {
             .collect::<Vec<_>>();
         // XXX: not combining multiple instances of header values with comma, so that's eventually going to be an issue...
         headers.sort();
-        headers.join("") + "\n"
+        headers.join("")
     }
 
-    fn signed_headers(headers: &reqwest::header::HeaderMap) -> String {
+    pub fn signed_headers(headers: &reqwest::header::HeaderMap) -> String {
         // 5. Add the signed headers, followed by a newline character. This value is the list of headers that you included in the canonical headers. By adding this list of headers, you tell AWS which headers in the request are part of the signing process and which ones AWS can ignore (for example, any additional headers added by a proxy) for purposes of validating the request.
         // For HTTP/1.1 requests, the host header must be included as a signed header. For HTTP/2 requests that include the :authority header instead of the host header, you must include the :authority header as a signed header. If you include a date or x-amz-date header, you must also include that header in the list of signed headers.
         let mut headers = headers
             .iter()
+            .filter(|(k, _v)| !k.as_str().to_lowercase().starts_with("x-amz-"))
             .map(|(k, _v)| k.as_str().to_lowercase())
             .collect::<Vec<_>>();
         headers.sort();
         headers.dedup();
-        headers.join(";") + "\n"
+        headers.join(";")
     }
 
     fn hashed_payload(payload: &[u8]) -> String {
         // 6. Use a hash (digest) function like SHA256 to create a hashed value from the payload in the body of the HTTP or HTTPS request. Signature Version 4 does not require that you use a particular character encoding to encode text in the payload. However, some AWS services might require a specific encoding. For more information, consult the documentation for that service.
-        hash(payload)
-    }
-
-    pub fn hash(payload: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.input(payload);
-        hasher
-            .result()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
+        format!("{:x}", Sha256::digest(payload))
     }
 
     fn canonical_request(
@@ -116,33 +110,43 @@ mod task1 {
             HexEncode(Hash(RequestPayload))
         */
         // 1. Start with the HTTP request method (GET, PUT, POST, etc.), followed by a newline character.
-        let http_request_method = method.as_str().to_string() + "\n";
-
+        let http_request_method = method.as_str().to_string();
         let canonical_uri = canonical_uri(url);
-        println!("canonical_uri: {:?}", canonical_uri);
-
         let canonical_query_string = canonical_query_string(url);
-        println!("canonical_query_string: {:?}", canonical_query_string);
-
         let canonical_headers = canonical_headers(headers);
-        println!("canonical_headers: {:?}", canonical_headers);
-
         let signed_headers = signed_headers(headers);
-        println!("signed_headers: {:?}", signed_headers);
-
         let hashed_payload = hashed_payload(payload);
-        println!("hashed_payload: {:?}", hashed_payload);
 
         // 7. To construct the finished canonical request, combine all the components from each step as a single string. As noted, each component ends with a newline character. If you follow the canonical request pseudocode explained earlier, the resulting canonical request is shown in the following example.
         let canonical_request = http_request_method
+            + "\n"
             + &canonical_uri
+            + "\n"
             + &canonical_query_string
+            + "\n"
             + &canonical_headers
+            + "\n"
             + &signed_headers
+            + "\n"
             + &hashed_payload;
-        println!("canonical_request:\n{}", canonical_request);
+
+        println!("CANONICAL_REQUEST:\n'{}'", canonical_request);
 
         canonical_request
+    }
+
+    pub fn hashed_canonical_request(
+        method: &reqwest::Method,
+        url: &reqwest::Url,
+        headers: &reqwest::header::HeaderMap,
+        payload: &[u8],
+    ) -> String {
+        let hashed_canonical_request = format!(
+            "{:x}",
+            Sha256::digest(canonical_request(method, url, headers, payload).as_bytes())
+        );
+        println!("HASHED_CANONICAL_REQUEST: {}", hashed_canonical_request);
+        hashed_canonical_request
     }
 
     #[cfg(test)]
@@ -156,20 +160,17 @@ mod task1 {
                         .parse()
                         .unwrap()
                 ),
-                "/\n"
+                "/"
             );
             assert_eq!(
                 canonical_uri(&"http://example.com/something?else".parse().unwrap()),
-                "/something\n"
+                "/something"
             );
             assert_eq!(
                 canonical_uri(&"http://user:pass@example.com".parse().unwrap()),
-                "/\n"
+                "/"
             );
-            assert_eq!(
-                canonical_uri(&"http://x.com/path/..".parse().unwrap()),
-                "/\n"
-            );
+            assert_eq!(canonical_uri(&"http://x.com/path/..".parse().unwrap()), "/");
         }
 
         #[test]
@@ -180,7 +181,7 @@ mod task1 {
                         .parse()
                         .unwrap()
                 ),
-                "%5eval%24=%27%20%27&a=b&b=&b=c&c=azAZ09~-_\n"
+                "%5eval%24=%27%20%27&a=b&b=&b=c&c=azAZ09~-_"
             )
         }
 
@@ -206,7 +207,7 @@ mod task1 {
             ]);
             assert_eq!(
                 canonical_headers(&headers),
-                "host:example.com\nspecial-header:special value\n\n"
+                "host:example.com\nspecial-header:special value\n"
             );
         }
 
@@ -221,7 +222,7 @@ mod task1 {
             ]);
             assert_eq!(
                 canonical_headers(&headers),
-                "host:example.com\nspecial-header:special value\n\n"
+                "host:example.com\nspecial-header:special value\n"
             );
         }
 
@@ -231,7 +232,7 @@ mod task1 {
                 "host: example.com",
                 "special-header:   special   value   ",
             ]);
-            assert_eq!(signed_headers(&headers), "host;special-header\n")
+            assert_eq!(signed_headers(&headers), "host;special-header")
         }
 
         #[test]
@@ -243,10 +244,7 @@ mod task1 {
                 "special-header: other  value",
                 "special-header: z",
             ]);
-            assert_eq!(
-                signed_headers(&headers),
-                "content-type;host;special-header\n"
-            )
+            assert_eq!(signed_headers(&headers), "content-type;host;special-header")
         }
 
         #[test]
@@ -286,7 +284,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
 
         #[test]
         fn test_hashed_canonical_request() {
-            let req = canonical_request(
+            let hash = hashed_canonical_request(
                 &reqwest::Method::GET,
                 &"https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
                     .parse()
@@ -298,7 +296,6 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
                 ]),
                 b"",
             );
-            let hash = hash(req.as_bytes());
             assert_eq!(
                 hash,
                 "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"
@@ -309,7 +306,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
 
 mod task2 {
     use chrono::{DateTime, Datelike, Timelike, Utc};
-    fn string_to_sign(
+
+    pub fn string_to_sign(
         datetime: DateTime<Utc>,
         region: &str,
         service: &str,
@@ -324,17 +322,27 @@ mod task2 {
         */
 
         // 1. Start with the algorithm designation, followed by a newline character. This value is the hashing algorithm that you use to calculate the digests in the canonical request. For SHA256, AWS4-HMAC-SHA256 is the algorithm.
-        let algorithm_str = "AWS4-HMAC-SHA256\n".to_string();
+        let algorithm_str = "AWS4-HMAC-SHA256".to_string();
         let request_datetime = request_datetime(datetime);
         let credential_scope = credential_scope(datetime, region, service);
 
-        algorithm_str + &request_datetime + &credential_scope + hashed_canonical_request
+        let string_to_sign = algorithm_str
+            + "\n"
+            + &request_datetime
+            + "\n"
+            + &credential_scope
+            + "\n"
+            + hashed_canonical_request;
+
+        println!("STRING_TO_SIGN: '{}'", string_to_sign);
+
+        string_to_sign
     }
 
     fn request_datetime(datetime: DateTime<Utc>) -> String {
         // 2. Append the request date value, followed by a newline character. The date is specified with ISO8601 basic format in the x-amz-date header in the format YYYYMMDD'T'HHMMSS'Z'. This value must match the value you used in any previous steps.
         format!(
-            "{:04}{:02}{:02}T{:02}{:02}{:02}Z\n",
+            "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
             datetime.year(),
             datetime.month(),
             datetime.day(),
@@ -344,10 +352,10 @@ mod task2 {
         )
     }
 
-    fn credential_scope(datetime: DateTime<Utc>, region: &str, service: &str) -> String {
+    pub fn credential_scope(datetime: DateTime<Utc>, region: &str, service: &str) -> String {
         // 3. Append the credential scope value, followed by a newline character. This value is a string that includes the date, the region you are targeting, the service you are requesting, and a termination string ("aws4_request") in lowercase characters. The region and service name strings must be UTF-8 encoded.
         format!(
-            "{:04}{:02}{:02}/{}/{}/aws4_request\n",
+            "{:04}{:02}{:02}/{}/{}/aws4_request",
             datetime.year(),
             datetime.month(),
             datetime.day(),
@@ -364,7 +372,7 @@ mod task2 {
         fn test_request_datetime() {
             assert_eq!(
                 request_datetime(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0)),
-                "20150830T123600Z\n"
+                "20150830T123600Z"
             );
         }
 
@@ -372,14 +380,19 @@ mod task2 {
         fn test_credential_scope() {
             assert_eq!(
                 credential_scope(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0), "us-east-1", "iam"),
-                "20150830/us-east-1/iam/aws4_request\n"
+                "20150830/us-east-1/iam/aws4_request"
             );
         }
 
         #[test]
         fn test_string_to_sign() {
             assert_eq!(
-                string_to_sign(Utc.ymd(2015, 8, 30).and_hms(12, 36, 0), "us-east-1", "iam", "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"),
+                string_to_sign(
+                    Utc.ymd(2015, 8, 30).and_hms(12, 36, 0),
+                    "us-east-1",
+                    "iam",
+                    "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"
+                ),
                 r#"AWS4-HMAC-SHA256
 20150830T123600Z
 20150830/us-east-1/iam/aws4_request
@@ -390,13 +403,19 @@ f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"#
 }
 
 mod task3 {
-    // fn hash(input: &[u8]) -> Vec<u8> {
-    //     use sha2::{Digest, Sha256};
-    //     let mut hasher = Sha256::default();
-    //     hasher.input(input);
-    //     hasher.result().into()
-    // }
-    fn sign() {
+    use chrono::{Date, Datelike, Utc};
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
+
+    fn hmac<'a>(key: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut hmac = HmacSha256::new_varkey(key).unwrap();
+        hmac.input(data);
+        hmac.result().code().as_slice().to_owned()
+    }
+
+    fn sign(k_secret: &str, date: &str, region: &str, service: &str) -> Vec<u8> {
         /*
         kSecret = your secret access key
         kDate = HMAC("AWS4" + kSecret, Date)
@@ -404,6 +423,142 @@ mod task3 {
         kService = HMAC(kRegion, Service)
         kSigning = HMAC(kService, "aws4_request")
         */
+        let k_date = hmac(format!("AWS4{}", k_secret).as_bytes(), date.as_bytes());
+        let k_region = hmac(k_date.as_slice(), region.as_bytes());
+        let k_service = hmac(k_region.as_slice(), service.as_bytes());
+        let k_signing = hmac(k_service.as_slice(), "aws4_request".as_bytes());
 
+        k_signing
+    }
+
+    pub fn signature(
+        secret: &str,
+        dt: Date<Utc>,
+        region: &str,
+        service: &str,
+        string_to_sign: &str,
+    ) -> String {
+        hmac(
+            &sign(
+                secret,
+                &format!("{:04}{:02}{:02}", dt.year(), dt.month(), dt.day()),
+                region,
+                service,
+            ),
+            string_to_sign.as_bytes(),
+        )
+        .into_iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+        use chrono::{TimeZone, Utc};
+
+        #[test]
+        fn test_sign() {
+            assert_eq!(
+                sign(
+                    "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+                    "20150830",
+                    "us-east-1",
+                    "iam"
+                )
+                .into_iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>(),
+                "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9"
+            );
+        }
+
+        #[test]
+        fn test_signature() {
+            assert_eq!(
+                signature(
+                    "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+                    Utc.ymd(2015, 8, 30),
+                    "us-east-1",
+                    "iam",
+                    r#"AWS4-HMAC-SHA256
+20150830T123600Z
+20150830/us-east-1/iam/aws4_request
+f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"#
+                ),
+                "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7"
+            )
+        }
+    }
+}
+
+pub fn auth_header(
+    method: &reqwest::Method,
+    url: &reqwest::Url,
+    headers: &reqwest::header::HeaderMap,
+    payload: &[u8],
+    dt: DateTime<Utc>,
+    region: &str,
+    service: &str,
+    access_key_id: &str,
+    secret: &str,
+) -> String {
+    // Authorization: algorithm Credential=access key ID/credential scope, SignedHeaders=SignedHeaders, Signature=signature
+    let algorithm = "AWS4-HMAC-SHA256";
+    let hashed_canonical_request = task1::hashed_canonical_request(method, url, headers, payload);
+    let string_to_sign = task2::string_to_sign(dt, region, service, &hashed_canonical_request);
+    let signature = task3::signature(secret, dt.date(), region, service, &string_to_sign);
+
+    let signed_headers = task1::signed_headers(headers);
+    let credential_scope = task2::credential_scope(dt, region, service);
+    let auth_value = format!(
+        "{} Credential={}/{}, SignedHeaders={}, Signature={}",
+        algorithm, access_key_id, credential_scope, signed_headers, signature
+    );
+
+    auth_value
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn build_headers(hdrs: Vec<&'static str>) -> reqwest::header::HeaderMap {
+        use std::iter::FromIterator;
+        let headers = reqwest::header::HeaderMap::from_iter(hdrs.into_iter().map(|s| {
+            let i = s.find(":").unwrap();
+            let k = &s[..i];
+            let v = &s[i + 1..];
+            (
+                reqwest::header::HeaderName::from_static(k),
+                reqwest::header::HeaderValue::from_static(v),
+            )
+        }));
+        headers
+    }
+
+    #[test]
+    fn test_auth_header() {
+        let expected = "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/iam/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7";
+        let auth_val = auth_header(
+            &reqwest::Method::GET,
+            &"https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
+                .parse()
+                .unwrap(),
+            &build_headers(vec![
+                "host: iam.amazonaws.com",
+                "x-amz-date:20150830T123600Z",
+                "content-type: application/x-www-form-urlencoded; charset=utf-8",
+            ]),
+            b"",
+            Utc.ymd(2015, 8, 30).and_hms(12, 36, 0),
+            "us-east-1",
+            "iam",
+            "AKIDEXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        );
+
+        assert_eq!(format!("Authorization: {}", auth_val), expected);
     }
 }
