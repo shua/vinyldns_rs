@@ -49,6 +49,12 @@ mod task1 {
         query_string
     }
 
+    fn is_problematic_header(name: &str) -> bool {
+        // used to filter out problematic headers from canonical headers and signed headers
+        let name = name.to_lowercase();
+        name.starts_with("x-amz-") || name == "content-type"
+    }
+
     fn canonical_headers(headers: &reqwest::header::HeaderMap) -> String {
         // 4. Add the canonical headers, followed by a newline character. The canonical headers consist of a list of all the HTTP headers that you are including with the signed request.
         // For HTTP/1.1 requests, you must include the host header at a minimum. Standard headers like content-type are optional.For HTTP/2 requests, you must include the :authority header instead of the host header. Different services might require other headers.
@@ -60,7 +66,7 @@ mod task1 {
         //   Append a new line ('\n').
         let mut headers = headers
             .iter()
-            .filter(|(k, _v)| !k.as_str().to_lowercase().starts_with("x-amz-"))
+            .filter(|(k, _v)| !is_problematic_header(k.as_str()))
             .map(|(k, v)| {
                 format!(
                     "{}:{}\n",
@@ -81,7 +87,7 @@ mod task1 {
         // For HTTP/1.1 requests, the host header must be included as a signed header. For HTTP/2 requests that include the :authority header instead of the host header, you must include the :authority header as a signed header. If you include a date or x-amz-date header, you must also include that header in the list of signed headers.
         let mut headers = headers
             .iter()
-            .filter(|(k, _v)| !k.as_str().to_lowercase().starts_with("x-amz-"))
+            .filter(|(k, _v)| !is_problematic_header(k.as_str()))
             .map(|(k, _v)| k.as_str().to_lowercase())
             .collect::<Vec<_>>();
         headers.sort();
