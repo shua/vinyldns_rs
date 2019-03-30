@@ -1,6 +1,9 @@
+use log::{debug, info};
 use reqwest;
 
+mod api_types;
 mod aws_sign;
+mod client;
 
 fn aws_signv4(req: &mut reqwest::Request) {
     use chrono::{Datelike, Timelike};
@@ -50,25 +53,28 @@ fn aws_signv4(req: &mut reqwest::Request) {
         "testUserAccessKey",
         "testUserSecretKey",
     );
-    println!("Authorization: {}", auth_val);
     req.headers_mut()
         .insert(header::AUTHORIZATION, auth_val.parse().unwrap());
 }
 
 fn main() {
-    use reqwest::Url;
-    use std::str::FromStr;
+    env_logger::init();
+
+    let client = client::Client::from_env().unwrap();
+
+    let groups = client.groups().unwrap();
+    info!("{:?}", groups);
 
     let mut req = reqwest::Request::new(
         reqwest::Method::GET,
-        Url::from_str("http://localhost:9000/").unwrap(),
+        "http://localhost:9000/".parse().unwrap(),
     );
 
     aws_signv4(&mut req);
-    println!("{:?}", req);
+    debug!("{:?}", req);
 
     let client = reqwest::Client::new();
     let mut res = client.execute(req).unwrap();
-    println!("{:?}", res);
-    println!("{:?}", res.text().unwrap());
+    debug!("{:?}", res);
+    info!("{:?}", res.text().unwrap());
 }

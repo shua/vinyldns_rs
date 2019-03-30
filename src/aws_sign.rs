@@ -4,6 +4,7 @@ pub use reqwest::{header::HeaderMap, Method};
 mod task1 {
     // https://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
 
+    use log::trace;
     use reqwest;
     use sha2::{Digest, Sha256};
     fn canonical_uri(url: &reqwest::Url) -> String {
@@ -136,7 +137,7 @@ mod task1 {
             + "\n"
             + &hashed_payload;
 
-        println!("CANONICAL_REQUEST:\n'{}'", canonical_request);
+        trace!("CANONICAL_REQUEST:\n'{}'", canonical_request);
 
         canonical_request
     }
@@ -151,7 +152,7 @@ mod task1 {
             "{:x}",
             Sha256::digest(canonical_request(method, url, headers, payload).as_bytes())
         );
-        println!("HASHED_CANONICAL_REQUEST: {}", hashed_canonical_request);
+        trace!("HASHED_CANONICAL_REQUEST: {}", hashed_canonical_request);
         hashed_canonical_request
     }
 
@@ -312,6 +313,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
 
 mod task2 {
     use chrono::{DateTime, Datelike, Timelike, Utc};
+    use log::trace;
 
     pub fn string_to_sign(
         datetime: DateTime<Utc>,
@@ -340,7 +342,7 @@ mod task2 {
             + "\n"
             + hashed_canonical_request;
 
-        println!("STRING_TO_SIGN: '{}'", string_to_sign);
+        trace!("STRING_TO_SIGN: '{}'", string_to_sign);
 
         string_to_sign
     }
