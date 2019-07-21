@@ -29,3 +29,15 @@ My own sanity test so far has been running the following commands (todo: integra
 	export VINYLDNS_SECRET_KEY=testUserSecretKey
 	cargo run -- create-group --name testgroup --email test@example.com
 	cargo run -- list-groups
+
+grab the group id from one of the previous commands
+
+	cargo run -- create-zone --name ok. --email test@example.com --admin-group-id <group-id>
+	cargo run -- list-zones
+
+try also running 
+
+	cargo run -- -h
+	cargo run -- <subcommand> -h
+
+to get some examples
