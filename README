@@ -24,6 +24,8 @@ and run with
 See [vinyldns] docs for getting the api started, usually at `http://localhost:9000`.
 My own sanity test so far has been running the following commands (todo: integration test?)
 
-	export VINYLDNS_HOST="http://localhost:9000" VINYLDNS_ACCESS_KEY=testUserAccessKey VINYLDNS_SECRET_KEY=testUserSecretKey
+	export VINYLDNS_HOST="http://localhost:9000"
+	export VINYLDNS_ACCESS_KEY=testUserAccessKey
+	export VINYLDNS_SECRET_KEY=testUserSecretKey
 	cargo run -- create-group --name testgroup --email test@example.com
 	cargo run -- list-groups
