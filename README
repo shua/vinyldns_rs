@@ -1,0 +1,24 @@
+This repository contains a client written in rust to interact with [vinyldns]
+
+It will include both a library with a `Client` struct for use in other code, as well
+as a binary offering a simple cli for calling the api.
+
+[vinyldns]: http://vinyldns.io/
+
+
+Development
+---
+The cli tool can be built with
+
+	cargo build
+
+and run with
+
+	cargo run -- <flags here>
+
+See [vinyldns] docs for getting the api started, usually at `http://localhost:9000`.
+My own sanity test so far has been running the following commands (todo: integration test?)
+
+	export VINYLDNS_HOST="http://localhost:9000" VINYLDNS_ACCESS_KEY=testUserAccessKey VINYLDNS_SECRET_KEY=testUserSecretKey
+	cargo run -- create-group --name testgroup --email test@example.com
+	cargo run -- list-groups
