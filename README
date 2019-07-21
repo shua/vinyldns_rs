@@ -1,3 +1,8 @@
+
+> I hope I will be read
+> -- this readme
+
+
 This repository contains a client written in rust to interact with [vinyldns]
 
 It will include both a library with a `Client` struct for use in other code, as well
