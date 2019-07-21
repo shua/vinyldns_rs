@@ -1,4 +1,4 @@
-pub use chrono::{DateTime, Datelike, Timelike, Utc};
+pub use chrono::{DateTime, Utc};
 pub use reqwest::{header::HeaderMap, Method};
 
 mod task1 {
@@ -53,7 +53,7 @@ mod task1 {
     fn is_problematic_header(name: &str) -> bool {
         // used to filter out problematic headers from canonical headers and signed headers
         let name = name.to_lowercase();
-        name.starts_with("x-amz-") || name == "content-type"
+        (name.starts_with("x-amz-") && name != "x-amz-date") //|| name == "content-type"
     }
 
     fn canonical_headers(headers: &reqwest::header::HeaderMap) -> String {
@@ -251,7 +251,7 @@ mod task1 {
                 "special-header: other  value",
                 "special-header: z",
             ]);
-            assert_eq!(signed_headers(&headers), "content-type;host;special-header")
+            assert_eq!(signed_headers(&headers), "host;special-header")
         }
 
         #[test]
@@ -280,11 +280,10 @@ mod task1 {
                 r#"GET
 /
 Action=ListUsers&Version=2010-05-08
-content-type:application/x-www-form-urlencoded; charset=utf-8
 host:iam.amazonaws.com
 x-amz-date:20150830T123600Z
 
-content-type;host;x-amz-date
+host;x-amz-date
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
             );
         }
@@ -305,7 +304,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"#
             );
             assert_eq!(
                 hash,
-                "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"
+                "5599feeca6d065c7c80025038896f3f7f008849eacf307aa7d0cf8be7116cea6"
             );
         }
     }
@@ -349,24 +348,14 @@ mod task2 {
 
     fn request_datetime(datetime: DateTime<Utc>) -> String {
         // 2. Append the request date value, followed by a newline character. The date is specified with ISO8601 basic format in the x-amz-date header in the format YYYYMMDD'T'HHMMSS'Z'. This value must match the value you used in any previous steps.
-        format!(
-            "{:04}{:02}{:02}T{:02}{:02}{:02}Z",
-            datetime.year(),
-            datetime.month(),
-            datetime.day(),
-            datetime.hour(),
-            datetime.minute(),
-            datetime.second()
-        )
+        datetime.format("%Y%m%dT%H%M%SZ").to_string()
     }
 
     pub fn credential_scope(datetime: DateTime<Utc>, region: &str, service: &str) -> String {
         // 3. Append the credential scope value, followed by a newline character. This value is a string that includes the date, the region you are targeting, the service you are requesting, and a termination string ("aws4_request") in lowercase characters. The region and service name strings must be UTF-8 encoded.
         format!(
-            "{:04}{:02}{:02}/{}/{}/aws4_request",
-            datetime.year(),
-            datetime.month(),
-            datetime.day(),
+            "{}/{}/{}/aws4_request",
+            datetime.format("%Y%m%d").to_string(),
             region,
             service
         )
@@ -500,6 +489,33 @@ f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59"#
     }
 }
 
+pub fn prepare_request(request: &mut reqwest::Request, dt: DateTime<Utc>, body: &[u8]) {
+    use reqwest::header;
+
+    let fallback_host = request.url().domain().unwrap().to_owned();
+    let fallback_content_type = "application/x-www-form-urlencoded; charset=utf-8";
+    let fallback_date = &dt.format("%Y%m%dT%H%M%SZ").to_string();
+
+    {
+        use sha2::{Digest, Sha256};
+        let headers = request.headers_mut();
+
+        if !headers.contains_key(header::HOST) {
+            headers.insert(header::HOST, fallback_host.parse().unwrap());
+        }
+
+        if !headers.contains_key(header::CONTENT_TYPE) {
+            headers.insert(header::CONTENT_TYPE, fallback_content_type.parse().unwrap());
+        }
+
+        headers.insert("X-Amz-Date", fallback_date.parse().unwrap());
+        headers.insert(
+            "X-Amz-Content-Sha256",
+            format!("{:x}", Sha256::digest(body)).parse().unwrap(),
+        );
+    }
+}
+
 pub fn auth_header(
     method: &reqwest::Method,
     url: &reqwest::Url,
@@ -548,7 +564,7 @@ mod test {
 
     #[test]
     fn test_auth_header() {
-        let expected = "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/iam/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7";
+        let expected = "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/iam/aws4_request, SignedHeaders=host;x-amz-date, Signature=b2e4af44cfad96d9ffa3c5653674a927b9b0995c33de22e1f843745ce37c1d5e";
         let auth_val = auth_header(
             &reqwest::Method::GET,
             &"https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"

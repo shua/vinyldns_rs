@@ -1,3 +1,6 @@
+#![allow(dead_code, unused_imports)]
+
+use clap::{clap_app, crate_version, SubCommand};
 use log::{debug, info};
 use reqwest;
 
@@ -57,24 +60,72 @@ fn aws_signv4(req: &mut reqwest::Request) {
         .insert(header::AUTHORIZATION, auth_val.parse().unwrap());
 }
 
+fn f<O: serde::Serialize>(x: Result<O, failure::Error>) -> String {
+    match x {
+        Ok(x) => format!("{}", serde_json::to_string_pretty(&x).unwrap()),
+        Err(x) => format!("{}", x),
+    }
+}
+
+fn g(m: &clap::ArgMatches<'_>, v: &str) -> String {
+    m.value_of(v).unwrap_or_default().into()
+}
+
 fn main() {
     env_logger::init();
 
+    let matches = clap_app!(("vinyldns-client") =>
+        (@setting SubcommandRequiredElseHelp)
+        (version: crate_version!())
+        // HACK: currently, (@subcommand name-with-hyphen => ...) or (@subcommand ("name-with-hyphen") => ...) won't parse
+        // https://github.com/clap-rs/clap/pull/1523
+        (subcommand: SubCommand::with_name("list-groups").alias("lg"))
+        (subcommand: clap_app!{ @app (SubCommand::with_name("create-group"))
+            (alias: "cg")
+            (@arg name: -n --name * +takes_value "")
+            (@arg email: -e --email * +takes_value "")
+            (@arg description: -d --description +takes_value "")
+        })
+        (subcommand: clap_app!{ @app (SubCommand::with_name("delete-group"))
+            (alias: "dg")
+            (@arg id: -i --id * +takes_value "")
+        })
+        (subcommand: SubCommand::with_name("list-zones").alias("lz"))
+        (subcommand: clap_app!{ @app (SubCommand::with_name("create-zone"))
+            (alias: "cz")
+            (@arg name: -n --name * +takes_value "")
+            (@arg email: -e --email * +takes_value "")
+            (@arg ("admin-group-id"): -a --("admin-group-id") * +takes_value "")
+        })
+        (subcommand: clap_app!{ @app (SubCommand::with_name("get-record-sets"))
+            (alias: "gr")
+            (@arg id: -i --id * +takes_value "")
+        })
+    )
+    .get_matches();
+
     let client = client::Client::from_env().unwrap();
 
-    let groups = client.groups().unwrap();
-    info!("{:?}", groups);
+    let out = match matches.subcommand() {
+        ("list-groups", _) => f(client.groups()),
+        ("create-group", Some(matches)) => f(client.group_create(&api_types::Group {
+            name: g(matches, "name"),
+            email: g(matches, "email"),
+            description: g(matches, "description"),
+            ..std::default::Default::default()
+        })),
+        ("delete-group", Some(matches)) => f(client.group_delete(&g(matches, "id"))),
+        ("list-zones", _) => f(client.zones()),
+        ("create-zone", Some(matches)) => f(client.zone_create(&api_types::Zone {
+            name: g(matches, "name"),
+            email: g(matches, "email"),
+            admin_group_id: g(matches, "admin-group-id"),
+            is_test: true,
+            ..std::default::Default::default()
+        })),
+        ("get-record-sets", Some(matches)) => f(client.record_sets(&g(matches, "id"))),
+        _ => unimplemented!(),
+    };
 
-    let mut req = reqwest::Request::new(
-        reqwest::Method::GET,
-        "http://localhost:9000/".parse().unwrap(),
-    );
-
-    aws_signv4(&mut req);
-    debug!("{:?}", req);
-
-    let client = reqwest::Client::new();
-    let mut res = client.execute(req).unwrap();
-    debug!("{:?}", res);
-    info!("{:?}", res.text().unwrap());
+    println!("{}", out);
 }
